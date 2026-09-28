@@ -1,0 +1,9 @@
+name: HaimanTech2
+version: 1.9.11-standalone
+main: com.haiman233.haimantech.HaimanTechPlugin
+api-version: '1.20'
+author: haiman233
+description: 海曼科技院（独立 Slimefun 附属，由 RSC 配置版改写而来）
+depend: [Slimefun]
+softdepend: [FoxyMachines, InfinityExpansion, LiteXpansion, TranscEndence, GuizhanLibPlugin]
+website: https://github.com/haiman233/HaimanTech2
