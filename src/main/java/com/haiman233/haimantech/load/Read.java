@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.bukkit.Color;
 import org.bukkit.Material;
@@ -37,6 +38,8 @@ public final class Read {
     private Read() {}
 
     private static final Pattern HEX64 = Pattern.compile("^[0-9A-Fa-f]{64}$");
+    /** JSON 文本组件中提取 text 字段（旧格式 saveditem display-name）。 */
+    private static final Pattern LEGACY_TEXT = Pattern.compile("\"text\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
 
     /** 头颅贴图去重缓存（避免同一 hash/base64 反复解码）。 */
     private static final Map<String, PlayerSkin> HASH_SKINS = new HashMap<>();
@@ -48,9 +51,12 @@ public final class Read {
     public static ItemStack item(ConfigurationSection s, boolean countable) {
         if (s == null) return null;
         String material = s.getString("material", "");
-        if (material.isEmpty()) return null;
-
         String type = s.getString("material_type", "mc");
+        if (material.isEmpty()) {
+            // RSC 语义：material_type none 允许不写 material（产出空气占位，如 AIR_HA_MACHINE 的 outputItem）
+            if ("none".equalsIgnoreCase(type)) return new ItemStack(Material.AIR);
+            return null;
+        }
         String lower = material.toLowerCase(Locale.ROOT);
         // 自动识别（与 RSC 一致：base64 贴图以小写 ey/ew 开头，故前缀判断区分大小写）
         if (material.startsWith("ey") || material.startsWith("ew")) type = "skull";
@@ -109,7 +115,21 @@ public final class Read {
                 ItemStack cached = SAVED_ITEMS.get(material);
                 if (cached != null) return cached.clone();
                 YamlConfiguration cfg = Yaml.loadSavedItem(material);
-                ItemStack stack = cfg.getItemStack("item");
+                ItemStack stack;
+                if (isLegacySavedItem(cfg)) {
+                    // 1.20.x 旧序列化格式（ENTITY_TAG/internal 等）在 1.21 无法反序列化，直接程序化重建
+                    stack = rebuildLegacySavedItem(cfg, material);
+                    if (stack != null) {
+                        HT.warn("saveditem " + material + " 为旧版本格式，已按材质+名称重建（可能丢失实体标签等附加数据）");
+                    }
+                } else {
+                    try {
+                        stack = cfg.getItemStack("item");
+                    } catch (Throwable t) {
+                        HT.warn("saveditem " + material + " 反序列化失败: " + t);
+                        stack = rebuildLegacySavedItem(cfg, material);
+                    }
+                }
                 if (stack == null) {
                     HT.missing("saveditem缺失:" + material);
                     return new ItemStack(Material.STONE);
@@ -121,15 +141,19 @@ public final class Read {
                 return builtIn(material);
             case "slimefun":
             case "sf": {
-                String id = material.toUpperCase(Locale.ROOT);
-                SlimefunItem sf = SlimefunItem.getById(id);
-                if (sf != null) return sf.getItem().clone();
-                ItemStack pre = HT.preload(id);
-                if (pre != null) {
-                    // 前向引用：目标尚未注册时补上 id PDC，保证 id 比较与指南导航正确
-                    return new SlimefunItemStack(id, pre);
+                // 多候选写法（如 "CHAIN | IRON_CHAIN"）：取第一个能解析的
+                for (String part : material.split("\\|")) {
+                    String id = part.trim().toUpperCase(Locale.ROOT);
+                    if (id.isEmpty()) continue;
+                    SlimefunItem sf = SlimefunItem.getById(id);
+                    if (sf != null) return sf.getItem().clone();
+                    ItemStack pre = HT.preload(id);
+                    if (pre != null) {
+                        // 前向引用：目标尚未注册时补上 id PDC，保证 id 比较与指南导航正确
+                        return new SlimefunItemStack(id, pre);
+                    }
                 }
-                HT.missing("sf物品未找到:" + id);
+                HT.missing("sf物品未找到:" + material);
                 return new ItemStack(Material.STONE);
             }
             default: {
@@ -141,6 +165,57 @@ public final class Read {
                 return new ItemStack(m);
             }
         }
+    }
+
+    /** 探测 1.20.x 旧版序列化格式的 saveditem（净化标记 或 ENTITY_TAG/ARMOR_STAND/internal 元数据）。 */
+    private static boolean isLegacySavedItem(YamlConfiguration cfg) {
+        if (cfg.getBoolean(Yaml.LEGACY_MARK, false)) return true;
+        ConfigurationSection item = cfg.getConfigurationSection("item");
+        if (item == null) return false;
+        String metaType = item.getString("meta.meta-type");
+        return item.contains("meta.internal")
+                || "ENTITY_TAG".equalsIgnoreCase(metaType)
+                || "ARMOR_STAND".equalsIgnoreCase(metaType);
+    }
+
+    /**
+     * 旧格式 saveditem 的程序化重建：取 {@code item.type} 材质 + display-name 中的文本。
+     * 实体标签（internal NBT）等附加数据无法恢复，重建为普通物品。
+     */
+    private static ItemStack rebuildLegacySavedItem(YamlConfiguration cfg, String name) {
+        ConfigurationSection item = cfg.getConfigurationSection("item");
+        if (item == null) return null;
+        String type = item.getString("type");
+        Material m = type == null ? null : matchMaterial(type);
+        if (m == null) {
+            HT.warn("saveditem " + name + " 无法重建：材质无效 " + type);
+            return null;
+        }
+        ItemStack stack = new ItemStack(m);
+        ItemMeta meta = stack.getItemMeta();
+        if (meta != null) {
+            String text = extractLegacyText(item.getString("meta.display-name"));
+            if (!text.isEmpty()) meta.setDisplayName(Colors.c(text));
+            try {
+                meta.addItemFlags(org.bukkit.inventory.ItemFlag.values());
+            } catch (Throwable ignored) {
+                // 版本差异下忽略
+            }
+            stack.setItemMeta(meta);
+        }
+        return stack;
+    }
+
+    /** 从 1.20.x JSON 文本组件字符串中提取纯文本（拼接所有 text 字段）。 */
+    private static String extractLegacyText(String json) {
+        if (json == null || json.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        Matcher m = LEGACY_TEXT.matcher(json);
+        while (m.find()) {
+            String t = m.group(1).replace("\\\"", "\"").replace("\\\\", "\\");
+            if (!t.isEmpty()) sb.append(t);
+        }
+        return sb.toString();
     }
 
     /** RSC 内置物品。本项目实际使用到生存模式指南书。 */
@@ -158,6 +233,14 @@ public final class Read {
 
     private static Material matchMaterial(String name) {
         if (name == null) return null;
+        // 多候选写法（RSC 内容中出现，如 "CHAIN | IRON_CHAIN"）：取第一个能解析的
+        if (name.contains("|")) {
+            for (String part : name.split("\\|")) {
+                Material m = matchMaterial(part.trim());
+                if (m != null) return m;
+            }
+            return null;
+        }
         if (name.startsWith("minecraft:")) name = name.substring(10);
         Material m = Material.matchMaterial(name);
         if (m != null) return m;

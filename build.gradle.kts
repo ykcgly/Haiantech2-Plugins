@@ -21,7 +21,10 @@ repositories {
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
-    compileOnly(files("libs/Slimefun-2025.11-release.jar"))
+    // 编译目标 = 测试服实际运行的中文版 Slimefun4（API 与官方版路径一致，行为核对过 registerMobDrop）
+    compileOnly(files("libs/Slimefun-f172239-Beta.jar"))
+    // 旧格式 saveditem 净化解析需要原生 SnakeYAML（运行时由 Paper 服务器提供 2.2）
+    compileOnly("org.yaml:snakeyaml:2.2")
     // Slimefun jar 的类签名引用了 JetBrains 注解；缺失时 javac 在特定推断场景会崩溃
     compileOnly("org.jetbrains:annotations:26.0.2")
 }

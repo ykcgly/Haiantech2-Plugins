@@ -3,6 +3,7 @@ package com.haiman233.haimantech.load;
 import com.haiman233.haimantech.HT;
 import com.haiman233.haimantech.customs.HTMobDrop;
 import io.github.thebusybiscuit.slimefun4.api.items.ItemGroup;
+import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItemStack;
 import io.github.thebusybiscuit.slimefun4.api.recipes.RecipeType;
 import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
@@ -11,6 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -48,6 +50,12 @@ public final class MobDropsLoader {
 
     private static boolean register(String id, ConfigurationSection s) {
         String effId = s.getString("id_alias", id).toUpperCase(Locale.ROOT);
+
+        // RSC 语义：ID 已被占用时跳过
+        if (SlimefunItem.getById(effId) != null) {
+            HT.warn("mob_drops.yml " + id + " ID 冲突: " + effId + " 已被占用，按 RSC 语义跳过");
+            return false;
+        }
 
         ItemGroup g = HT.group(s.getString("item_group"));
         if (g == null) {
@@ -94,6 +102,10 @@ public final class MobDropsLoader {
         ItemStack center = new ItemStack(egg != null ? egg : Material.EGG);
         ItemMeta meta = center.getItemMeta();
         if (meta != null) {
+            // Slimefun（含中文版）的 RecipeType.MOB_DROP 处理器从 recipe[4] 的显示名解析实体：
+            // stripColor → 大写 → 空格转下划线 → EntityType.valueOf(...)。
+            // 缺少显示名会导致 EntityType.valueOf("") 抛 IllegalArgumentException，必须写实体英文名。
+            meta.setDisplayName(ChatColor.AQUA + entity.toString());
             meta.lore(List.of(dropLore(entity, chance)));
             center.setItemMeta(meta);
         }

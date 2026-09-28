@@ -68,6 +68,13 @@ public final class ItemsLoader {
         String effId = s.getString("id_alias", id);
         String effIdUpper = effId.toUpperCase(Locale.ROOT);
 
+        // RSC 语义（CommonUtils.passItemIdConflictCheck）：ID 已被占用时跳过，first-wins。
+        // content 中 VERSIONED_/VERSION_ 变体与基础条目共用 id_alias，属预期重复。
+        if (SlimefunItem.getById(effIdUpper) != null || SlimefunItem.getById(effId) != null) {
+            HT.warn(file + " " + id + " ID 冲突: " + effIdUpper + " 已被占用，按 RSC 语义跳过");
+            return false;
+        }
+
         ItemGroup g = HT.group(s.getString("item_group"));
         if (g == null) {
             HT.missing("物品组缺失:" + s.getString("item_group"));

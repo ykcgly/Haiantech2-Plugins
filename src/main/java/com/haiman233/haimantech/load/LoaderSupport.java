@@ -2,6 +2,7 @@ package com.haiman233.haimantech.load;
 
 import com.haiman233.haimantech.HT;
 import io.github.thebusybiscuit.slimefun4.api.items.ItemGroup;
+import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItemStack;
 import io.github.thebusybiscuit.slimefun4.api.recipes.RecipeType;
 import java.util.ArrayList;
@@ -63,6 +64,13 @@ final class LoaderSupport {
     record Prepared(ItemGroup group, SlimefunItemStack item, RecipeType recipeType, ItemStack[] recipe) {}
 
     static Prepared prepare(ConfigurationSection s, String effId) {
+        // RSC 语义：ID 已被占用时跳过（VERSIONED_ 变体与基础条目共用 id_alias 的预期重复）
+        String upper = effId.toUpperCase(Locale.ROOT);
+        if (SlimefunItem.getById(upper) != null || SlimefunItem.getById(effId) != null) {
+            HT.warn("ID 冲突: " + upper + " 已被占用，按 RSC 语义跳过");
+            return null;
+        }
+
         ItemGroup g = HT.group(s.getString("item_group"));
         if (g == null) {
             HT.missing("物品组缺失:" + s.getString("item_group"));

@@ -26,9 +26,67 @@ public final class Yaml {
         return load(name, name);
     }
 
-    /** 加载 saveditems/ 下的资源，如 "HM_DEBUG_FISH"。 */
+    /** 净化版配置中的旧格式标记键（供 Read 判定走重建路径）。 */
+    public static final String LEGACY_MARK = "legacy_saveditem";
+
+    /**
+     * 加载 saveditems/ 下的资源，如 "HM_DEBUG_FISH"。
+     * 1.20.x 实体标签格式（meta-type: ENTITY_TAG）在 1.21 无法反序列化，且炸点位于
+     * YamlConfiguration 加载期（Bukkit 解析 YAML 时即实例化 ItemStack，CraftMetaEntityTag
+     * 解码旧实体 NBT 抛 NoSuchElementException），故先预读文本识别，命中后用原生
+     * SnakeYAML 解析为纯 Map，绕开 Bukkit 的对象实例化。
+     */
     public static YamlConfiguration loadSavedItem(String name) {
-        return load("saveditems/" + name + ".yml", "saveditem:" + name);
+        YamlConfiguration cached = CACHE.get("saveditem:" + name);
+        if (cached != null) return cached;
+        YamlConfiguration cfg = loadSavedItem0(name);
+        CACHE.put("saveditem:" + name, cfg);
+        return cfg;
+    }
+
+    private static YamlConfiguration loadSavedItem0(String name) {
+        String path = "saveditems/" + name + ".yml";
+        String raw = readResourceText(path);
+        if (raw != null && raw.contains("meta-type: ENTITY_TAG")) {
+            return sanitizeLegacyEntitySavedItem(name, raw);
+        }
+        return doLoad(path, name);
+    }
+
+    /** 旧实体标签 saveditem 净化：仅提取 item.type 与 item.meta.display-name，供 Read 程序化重建。 */
+    private static YamlConfiguration sanitizeLegacyEntitySavedItem(String name, String raw) {
+        YamlConfiguration cfg = new YamlConfiguration();
+        try {
+            // 全限定名调用：与本项目 com.haiman233.haimantech.load.Yaml 同名，不能 import
+            Object root = new org.yaml.snakeyaml.Yaml().load(raw);
+            if (root instanceof Map<?, ?> map && map.get("item") instanceof Map<?, ?> item) {
+                if (item.get("type") != null) cfg.set("item.type", String.valueOf(item.get("type")));
+                if (item.get("meta") instanceof Map<?, ?> meta
+                        && meta.get("display-name") instanceof String dn) {
+                    cfg.set("item.meta.display-name", dn);
+                }
+            }
+            cfg.set(LEGACY_MARK, true);
+        } catch (Exception e) {
+            HT.warn("saveditem " + name + " 旧格式净化解析失败: " + e);
+        }
+        return cfg;
+    }
+
+    /** 读取 jar 内资源为 UTF-8 文本；不存在或读取失败返回 null。 */
+    private static String readResourceText(String path) {
+        InputStream in = HT.plugin.getResource(path);
+        if (in == null) return null;
+        try (InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+            StringBuilder sb = new StringBuilder();
+            char[] buf = new char[4096];
+            int n;
+            while ((n = reader.read(buf)) > 0) sb.append(buf, 0, n);
+            return sb.toString();
+        } catch (IOException e) {
+            HT.warn("读取 " + path + " 失败: " + e);
+            return null;
+        }
     }
 
     private static YamlConfiguration load(String path, String cacheKey) {
@@ -49,7 +107,6 @@ public final class Yaml {
                 return YamlConfiguration.loadConfiguration(reader);
             }
         } catch (IOException e) {
-            HT.warn("读取 " + path + " 失败: " + e);
             HT.warn("读取 " + path + " 失败: " + e);
             return new YamlConfiguration();
         }

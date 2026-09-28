@@ -51,14 +51,17 @@ public final class MaterialGeneratorsLoader {
             ConfigurationSection single = s.getConfigurationSection("outputItem");
             if (single != null) {
                 var stack = Read.item(single, true);
-                if (stack != null) {
+                if (stack == null) {
+                    HT.warn(file + " " + id + " 物品配置错误 (outputItem)");
+                } else if (!stack.getType().isAir()) {
                     int chance = Math.min(100, Math.max(1, single.getInt("chance", 100)));
                     outputs.add(new HTRecipe.Output(stack, chance));
-                } else {
-                    HT.warn(file + " " + id + " 物品配置错误 (outputItem)");
                 }
+                // AIR（material_type: none）= RSC 的"无固定产出"语义，静默忽略该输出
             }
-            if (outputs.isEmpty()) {
+            // 只要配置里声明过产出（outputItem 或 outputs），即使实际产出为空/空气也照常注册机器
+            boolean declaredOutput = single != null || s.getConfigurationSection("outputs") != null;
+            if (outputs.isEmpty() && !declaredOutput) {
                 HT.warn(file + " " + id + " 缺少产出物品 (outputItem/outputs)，已跳过");
                 return false;
             }

@@ -49,6 +49,12 @@ public final class GeoLoader {
     private static boolean register(String id, ConfigurationSection s) {
         String effId = s.getString("id_alias", id).toUpperCase(Locale.ROOT);
 
+        // RSC 语义：ID 已被占用时跳过
+        if (io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem.getById(effId) != null) {
+            HT.warn("geo_resources.yml " + id + " ID 冲突: " + effId + " 已被占用，按 RSC 语义跳过");
+            return false;
+        }
+
         ItemGroup g = HT.group(s.getString("item_group"));
         if (g == null) {
             HT.missing("物品组缺失:" + s.getString("item_group"));
