@@ -7,22 +7,17 @@
 
 ## 前置插件需求
 
-**强烈不建议服主或管理员使用/rsc reload指令对海曼科技院进行热重载，这将导致玩家丢失有关海曼科技院的研究数据**
-
 前置：
-- Slimefun
-- GuizhanLibPlugin
-- SlimeCustomizer
-- FoxyMachines
-- InfinityExpansion
-- LiteXpansion
-- TranscEndence
+- [Slimefun-粘液本体](https://builds.guizhanss.com/SlimefunGuguProject/Slimefun4/master)
+- [GuizhanLibPlugin-鬼斩前置库](https://builds.guizhanss.com/ybw0014/GuizhanLibPlugin/master)
+- [FoxyMachines-神秘科技](https://builds.guizhanss.com/SlimefunGuguProject/FoxyMachines/master)
+- [InfinityExpansion-无尽贪婪](https://builds.guizhanss.com/SlimefunGuguProject/InfinityExpansion/master)
+- [LiteXpansion-工业](https://builds.guizhanss.com/SlimefunGuguProject/LiteXpansion/master)
+- [TranscEndence-末地科技](https://builds.guizhanss.com/SlimefunGuguProject/TranscEndence/master)
 
 软前置：
-- Gastronomicon
-- SlimyTreeTaps
-
-自BETA-2.0版本起，海曼科技院不再需要DynaTech，但是BETA-2.0以前的版本仍然需要安装DynaTech
+- [Gastronomicon-美食家](https://builds.guizhanss.com/SlimefunGuguProject/Gastronomicon/master)
+- [SlimyTreeTaps-粘液木龙头](https://builds.guizhanss.com/SlimefunGuguProject/SlimyTreeTaps/master)
 
 ## 公告
 
@@ -42,26 +37,23 @@
 
 2、检查前置是否安装齐全
 
-3、启动服务器，享受美味海曼😋
+3、启动服务器即可品尝
 
 ## 关于海曼科技院的前世今生
-海曼科技院是由海曼重新接手的海曼科技2.0，保留了1.0中的机器并将拓展更多玩法，海曼科技院会在明年高考结束后进行频繁更新
+海曼科技院是由[海曼](https://github.com/haiman233)重新接手的海曼科技2.0，保留了1.0中的机器并将拓展更多玩法，海曼科技院会在明年高考结束后进行频繁更新
 
 海曼不再维护海曼科技1.0和天璇工艺
 
-海曼科技院BETA-1.0适配版本
-Minecraft版本：1.18 ~ 1.20+
-
-未来海曼科技院适配版本
-Minecraft版本:1.19+ ~ 1.20.5
-最新的SlimeCustomizer版本
+2026.8.18
+海曼发布海曼科技最后一个版本修复，宣布停更
 
 2026.9.28
 海曼科技已经适配1.20以上版本，但是目前未在26版本进行测试！
 海曼科技被我接手，转成了jar版本。拥有了更加美味的性能
 后续我还会继续更新与维护海曼科技
 
-如果你有任何建议或者是反馈海曼科技院的bug，都可以发至本仓库的issues里，欢迎各位腐竹/玩家进QQ群讨论：`205679802`
+如果你有任何建议或者是反馈海曼科技院的bug，都可以发至本仓库的issues里，或者加qq联系我`1424136122`
+欢迎各位腐竹/玩家进QQ群讨论：`205679802`
 
 ## 使用前声明
 
