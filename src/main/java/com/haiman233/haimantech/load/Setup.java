@@ -76,6 +76,9 @@ public final class Setup {
                     if (s == null) continue;
                     ConfigurationSection itemSec = s.getConfigurationSection("item");
                     if (itemSec == null) continue;
+                    // 版本过滤：同一 ID 的多个版本条目（DIAOYUJI / VERSION_DIAOYUJI）共用 id_alias，
+                    // 预加载表按 effId 后写覆盖，不过滤会留下与服务端不匹配那版的展示堆。
+                    if (!RegisterConditions.passVersion(s)) continue;
                     ItemStack display = Read.item(itemSec, false);
                     if (display == null) continue;
                     String effId = s.getString("id_alias", id).toUpperCase(Locale.ROOT);
@@ -107,6 +110,7 @@ public final class Setup {
             if (sb.length() > 0) sb.append(", ");
             sb.append(e.getKey()).append(" x").append(e.getValue());
         }
-        HT.plugin.getLogger().warning("以下引用未解析到目标（多为未安装对应软依赖），共 " + total + " 处: " + sb);
+        HT.plugin.getLogger().warning("以下引用未完全按原样解析（多为未安装对应软依赖，或 1.20.x 旧格式 saveditem 已程序化重建），共 "
+                + total + " 处: " + sb);
     }
 }

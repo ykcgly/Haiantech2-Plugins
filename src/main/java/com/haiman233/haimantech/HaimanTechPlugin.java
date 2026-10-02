@@ -36,6 +36,7 @@ public final class HaimanTechPlugin extends JavaPlugin implements SlimefunAddon 
     public void onEnable() {
         instance = this;
         HT.plugin = this;
+        saveDefaultConfig();
         getLogger().info("=========================================================");
         getLogger().info("                 海曼科技院 开始加载（独立版）");
         getLogger().info("                   作者： haiman");

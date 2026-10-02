@@ -1,0 +1,14 @@
+# 海曼科技院（HaimanTech2 独立版）配置
+
+# version-filter：是否按服务端 MC 版本过滤内容条目
+#   true（默认，推荐）
+#       严格遵循 content 中 register.conditions 的 version 条件（与原版 RSC 行为一致）。
+#       同一物品的多版本条目（例如 DIAOYUJI 配 version < 1.21、VERSION_DIAOYUJI 配 version >= 1.21）
+#       只会有与当前服务端匹配的那一个被注册，因此不会出现 "ID 冲突" 告警，
+#       且实际生效的是适配当前版本的机器/物品定义。
+#   false
+#       忽略所有 version 条件，注册全部条目（1.9.11 之前的行为）。
+#       此时同一粘液 ID 的多个版本条目会互相冲突，只有第一个被注册 —— 该定义可能与当前服务端版本不匹配，
+#       启动日志会刷出大量 "ID 冲突: xxx 已被占用，按 RSC 语义跳过"。
+#       仅当确认需要保留旧版本物品时再关闭。
+version-filter: true

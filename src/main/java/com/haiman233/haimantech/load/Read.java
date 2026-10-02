@@ -8,6 +8,7 @@ import io.github.thebusybiscuit.slimefun4.core.guide.SlimefunGuide;
 import io.github.thebusybiscuit.slimefun4.core.guide.SlimefunGuideMode;
 import io.github.thebusybiscuit.slimefun4.libraries.dough.skins.PlayerHead;
 import io.github.thebusybiscuit.slimefun4.libraries.dough.skins.PlayerSkin;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -40,6 +41,10 @@ public final class Read {
     private static final Pattern HEX64 = Pattern.compile("^[0-9A-Fa-f]{64}$");
     /** JSON 文本组件中提取 text 字段（旧格式 saveditem display-name）。 */
     private static final Pattern LEGACY_TEXT = Pattern.compile("\"text\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+    /** 文本组件对象块（extra 数组的每个元素均为扁平对象）。 */
+    private static final Pattern COMPONENT = Pattern.compile("\\{([^{}]*)\\}");
+    private static final Pattern COLOR_FIELD = Pattern.compile("\"color\"\\s*:\\s*\"([a-z_]+)\"");
+    private static final Pattern TEXT = LEGACY_TEXT;
 
     /** 头颅贴图去重缓存（避免同一 hash/base64 反复解码）。 */
     private static final Map<String, PlayerSkin> HASH_SKINS = new HashMap<>();
@@ -115,19 +120,37 @@ public final class Read {
                 ItemStack cached = SAVED_ITEMS.get(material);
                 if (cached != null) return cached.clone();
                 YamlConfiguration cfg = Yaml.loadSavedItem(material);
-                ItemStack stack;
+                ItemStack stack = null;
                 if (isLegacySavedItem(cfg)) {
-                    // 1.20.x 旧序列化格式（ENTITY_TAG/internal 等）在 1.21 无法反序列化，直接程序化重建
+                    // 1.20.x ENTITY_TAG 格式：Bukkit 在 YAML 加载期就会抛异常（CraftMetaEntityTag
+                    // 解码旧实体 NBT 失败），Yaml 已把它净化为 type+display-name，只能程序化重建。
                     stack = rebuildLegacySavedItem(cfg, material);
                     if (stack != null) {
-                        HT.warn("saveditem " + material + " 为旧版本格式，已按材质+名称重建（可能丢失实体标签等附加数据）");
+                        // 折叠计数：这类条目可能有上百个，逐条 warn 会淹没真正的错误，
+                        // 加载结束时由 Setup.report() 汇总输出（含具体 saveditem 名）。
+                        HT.missing("saveditem旧格式重建:" + material);
                     }
                 } else {
+                    // 含 internal（旧 NBT blob）的条目并不等于无法解析：1.21 的 Bukkit 会对旧
+                    // 数据做升级（EntityTag→entity_data、BlockEntityTag→block_entity_data）。
+                    // 因此先交给 Bukkit 正常反序列化，只有在抛异常或名称丢失时才退回重建。
                     try {
-                        stack = cfg.getItemStack("item");
+                        ItemStack parsed = cfg.getItemStack("item");
+                        if (parsed != null && !parsed.getType().isAir()) {
+                            ItemMeta pm = parsed.getItemMeta();
+                            if (cfg.contains("item.meta.display-name") && (pm == null || !pm.hasDisplayName())) {
+                                HT.missing("saveditem反序列化降级(名称丢失):" + material);
+                                ItemStack rebuilt = rebuildLegacySavedItem(cfg, material);
+                                if (rebuilt != null) parsed = rebuilt;
+                            }
+                            stack = parsed;
+                        }
                     } catch (Throwable t) {
-                        HT.warn("saveditem " + material + " 反序列化失败: " + t);
+                        HT.warn("saveditem " + material + " 反序列化失败，按材质+名称重建: " + t);
+                    }
+                    if (stack == null) {
                         stack = rebuildLegacySavedItem(cfg, material);
+                        if (stack != null) HT.missing("saveditem旧格式重建:" + material);
                     }
                 }
                 if (stack == null) {
@@ -167,14 +190,19 @@ public final class Read {
         }
     }
 
-    /** 探测 1.20.x 旧版序列化格式的 saveditem（净化标记 或 ENTITY_TAG/ARMOR_STAND/internal 元数据）。 */
+    /**
+     * 探测必须在加载期净化、只能程序化重建的 saveditem。
+     *
+     * <p><b>注意</b>：这里只看净化标记与 ENTITY_TAG/ARMOR_STAND（Bukkit 在 YAML 解析阶段就会炸）。
+     * 单纯含 {@code meta.internal} 的条目<b>不在此列</b> —— internal 只是旧版 NBT blob，
+     * 1.21 的 Bukkit 往往能正常升级还原，一律重建反而会白白丢掉头颅皮肤、容器内容等数据。</p>
+     */
     private static boolean isLegacySavedItem(YamlConfiguration cfg) {
         if (cfg.getBoolean(Yaml.LEGACY_MARK, false)) return true;
         ConfigurationSection item = cfg.getConfigurationSection("item");
         if (item == null) return false;
         String metaType = item.getString("meta.meta-type");
-        return item.contains("meta.internal")
-                || "ENTITY_TAG".equalsIgnoreCase(metaType)
+        return "ENTITY_TAG".equalsIgnoreCase(metaType)
                 || "ARMOR_STAND".equalsIgnoreCase(metaType);
     }
 
@@ -194,8 +222,17 @@ public final class Read {
         ItemStack stack = new ItemStack(m);
         ItemMeta meta = stack.getItemMeta();
         if (meta != null) {
-            String text = extractLegacyText(item.getString("meta.display-name"));
-            if (!text.isEmpty()) meta.setDisplayName(Colors.c(text));
+            String displayName = jsonToLegacy(item.getString("meta.display-name"));
+            if (!displayName.isEmpty()) meta.setDisplayName(Colors.c(displayName));
+            List<String> loreRaw = item.getStringList("meta.lore");
+            if (!loreRaw.isEmpty()) {
+                List<String> lore = new ArrayList<>();
+                for (String raw : loreRaw) {
+                    String line = jsonToLegacy(raw);
+                    if (!line.isEmpty()) lore.add(Colors.c(line));
+                }
+                if (!lore.isEmpty()) meta.setLore(lore);
+            }
             try {
                 meta.addItemFlags(org.bukkit.inventory.ItemFlag.values());
             } catch (Throwable ignored) {
@@ -204,6 +241,45 @@ public final class Read {
             stack.setItemMeta(meta);
         }
         return stack;
+    }
+
+    /** 颜色名 -> 旧式颜色码字符（供 {@link #jsonToLegacy} 拼 {@code &x} 前缀）。 */
+    private static final Map<String, String> CHAT_COLORS = Map.ofEntries(
+            Map.entry("black", "0"), Map.entry("dark_blue", "1"), Map.entry("dark_green", "2"),
+            Map.entry("dark_aqua", "3"), Map.entry("dark_red", "4"), Map.entry("dark_purple", "5"),
+            Map.entry("gold", "6"), Map.entry("gray", "7"), Map.entry("dark_gray", "8"),
+            Map.entry("blue", "9"), Map.entry("green", "a"), Map.entry("aqua", "b"),
+            Map.entry("red", "c"), Map.entry("light_purple", "d"), Map.entry("yellow", "e"),
+            Map.entry("white", "f"));
+
+    /**
+     * 1.20.x JSON 文本组件 -> 旧式 {@code &} 颜色码文本（保留颜色与粗体等格式）。
+     * 解析失败或没有任何组件时退回 {@link #extractLegacyText} 的纯文本拼接。
+     */
+    private static String jsonToLegacy(String json) {
+        if (json == null || json.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        Matcher cm = COMPONENT.matcher(json);
+        while (cm.find()) {
+            String block = cm.group(1);
+            Matcher tm = TEXT.matcher(block);
+            if (!tm.find()) continue;
+            String text = tm.group(1).replace("\\\"", "\"").replace("\\\\", "\\");
+            if (text.isEmpty()) continue;
+            StringBuilder prefix = new StringBuilder();
+            Matcher col = COLOR_FIELD.matcher(block);
+            if (col.find()) {
+                String c = CHAT_COLORS.get(col.group(1));
+                if (c != null) prefix.append('&').append(c);
+            }
+            if (block.contains("\"obfuscated\":true")) prefix.append("&k");
+            if (block.contains("\"bold\":true")) prefix.append("&l");
+            if (block.contains("\"strikethrough\":true")) prefix.append("&m");
+            if (block.contains("\"underlined\":true")) prefix.append("&n");
+            if (block.contains("\"italic\":true")) prefix.append("&o");
+            sb.append(prefix).append(text);
+        }
+        return sb.length() > 0 ? sb.toString() : extractLegacyText(json);
     }
 
     /** 从 1.20.x JSON 文本组件字符串中提取纯文本（拼接所有 text 字段）。 */

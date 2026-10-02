@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import me.mrCookieSlime.Slimefun.Objects.SlimefunItem.interfaces.InventoryBlock;
 import me.mrCookieSlime.Slimefun.Objects.handlers.BlockTicker;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
@@ -69,7 +70,14 @@ public class HTMachine extends SlimefunItem implements InventoryBlock, EnergyNet
 
     protected final MachineProcessor<CraftingOperation> processor = new MachineProcessor<>(this);
     /** 运行中操作对应的配方（用于结束时按概率产出）。 */
-    private final Map<BlockPosition, HTRecipe> active = new HashMap<>();
+    private final Map<BlockPosition, HTRecipe> active = new ConcurrentHashMap<>();
+    /**
+     * 空闲轮询节流：location -> 允许再次扫描配方的最早时间戳(ms)。
+     * 防止空转机器每 tick 全表扫描配方（sftiming 占用的主要来源）。
+     */
+    private final Map<BlockPosition, Long> nextScan = new ConcurrentHashMap<>();
+    /** 空闲机器在"有输入但未匹配到配方"时，两次配方扫描之间的最小间隔。 */
+    private static final long IDLE_SCAN_INTERVAL_MS = 1000L;
 
     public HTMachine(ItemGroup group, SlimefunItemStack item, RecipeType recipeType, ItemStack[] recipe,
                      int[] inputSlots, int[] outputSlots, int energyPerTick, int capacity, int speed,
@@ -99,6 +107,7 @@ public class HTMachine extends SlimefunItem implements InventoryBlock, EnergyNet
                 }
                 processor.endOperation(b.getLocation());
                 active.remove(new BlockPosition(b.getLocation()));
+                nextScan.remove(new BlockPosition(b.getLocation()));
             }
         });
         addItemHandler(new BlockTicker() {
@@ -166,20 +175,41 @@ public class HTMachine extends SlimefunItem implements InventoryBlock, EnergyNet
 
         CraftingOperation op = processor.getOperation(l);
         if (op == null) {
+            // 空闲快速门：仅对"有输入槽且输入全空"的配方机生效——这类机器绝不可能匹配配方，
+            // 直接跳过，避免每个空闲机器每 tick 全表扫描配方（sftiming 占用的主要来源）。
+            // 注意：材料生成器 inputSlots 本就为空（无输入、靠空输入配方持续产出），不能在此跳过。
+            if (inputSlots.length > 0 && isInputEmpty(inv)) {
+                return;
+            }
+            // 空闲轮询节流：本秒已扫描过且未匹配到配方的机器跳过本次，限制每秒最多扫描一次。
+            long now = System.currentTimeMillis();
+            Long next = nextScan.get(new BlockPosition(l));
+            if (next != null && now < next) {
+                return;
+            }
             if (energyPerTick > 0 && getCharge(l) < energyPerTick) {
                 onStatus(l, inv, Status.NO_POWER);
+                nextScan.put(new BlockPosition(l), now + IDLE_SCAN_INTERVAL_MS);
                 return;
             }
             HTRecipe recipe = findAndConsumeRecipe(inv);
             if (recipe == null) {
                 onStatus(l, inv, Status.IDLE);
+                nextScan.put(new BlockPosition(l), now + IDLE_SCAN_INTERVAL_MS);
                 return;
             }
             ItemStack[] results = recipe.getOutputs().stream()
                     .map(HTRecipe.Output::item).map(ItemStack::clone).toArray(ItemStack[]::new);
-            op = new CraftingOperation(new ItemStack[0], results, Math.max(1, recipe.getTicks()));
+            // 此 Slimefun 版本的 CraftingOperation 校验 ingredients 非空：原先传空数组会让
+            // 每次开工抛 IllegalArgumentException，且此时输入已在 findAndConsumeRecipe 中被
+            // 消耗，造成材料白损。有输入的配方传输入模板副本；材料生成器无输入，用 AIR 占位。
+            ItemStack[] ingredients = recipe.getInputs().isEmpty()
+                    ? new ItemStack[]{new ItemStack(Material.AIR)}
+                    : recipe.getInputs().stream().map(in -> in.template().clone()).toArray(ItemStack[]::new);
+            op = new CraftingOperation(ingredients, results, Math.max(1, recipe.getTicks()));
             processor.startOperation(l, op);
             active.put(new BlockPosition(l), recipe);
+            nextScan.remove(new BlockPosition(l));
         }
 
         if (energyPerTick > 0 && getCharge(l) < energyPerTick) {
@@ -221,6 +251,15 @@ public class HTMachine extends SlimefunItem implements InventoryBlock, EnergyNet
     }
 
     protected enum Status {IDLE, PROCESSING, NO_POWER, NO_SPACE}
+
+    /** 输入槽是否全空（用于空闲快速判定，O(输入槽数) 而非 O(配方数)）。 */
+    private boolean isInputEmpty(BlockMenu inv) {
+        for (int slot : inputSlots) {
+            ItemStack it = inv.getItemInSlot(slot);
+            if (it != null && !it.getType().isAir()) return false;
+        }
+        return true;
+    }
 
     // ------------------------------------------------------------- 配方匹配
 

@@ -267,7 +267,7 @@ minlingfangkuairanse:
   - COMMAND_BLOCK_DYE_MACHINE
 gjminlingfangkuairanse:
   lateInit: false
-  id: 118000030
+  id: 118000031
   name: 更高级的染色技巧
   levelCost: 188
   items:
